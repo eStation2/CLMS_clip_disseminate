@@ -445,7 +445,7 @@ Author: Tim Jacobs (tim.jacobs@vito.be), Davy Wolfs (davy.wolfs@vito.be)
                     <Country codeList="https://www.iso.org/obp/ui/" codeListValue="IT" codeSpace="ISO 3166-1">Italy</Country>
                   </country>
                   <electronicMailAddress>
-                    <gco:CharacterString>copernicuslandproducts@jrc.ec.europa.eu</gco:CharacterString>
+                    <gco:CharacterString>JRC-Copernicus-Land@ec.europa.eu</gco:CharacterString>
                   </electronicMailAddress>
                 </CI_Address>
               </address>

@@ -2,16 +2,16 @@ import subprocess
 import datetime
 import os
 import logging
-from DMP.clip_clms_DMP_AFRI import run_dmp_afri_clipping
-from DMP.clip_clms_DMP_SOAM import run_dmp_soam_clipping
-from NDVI.clip_clms_NDVI_AFRI import run_ndvi_afri_clipping
-from NDVI.clip_clms_NDVI_SOAM import run_ndvi_soam_clipping
-from FAPAR.clip_clms_FAPAR_AFRI import run_fapar_afri_clipping
-from FAPAR.clip_clms_FAPAR_SOAM import run_fapar_soam_clipping
-from FCOVER.clip_clms_FCOVER_AFRI import run_fcover_afri_clipping
-from FCOVER.clip_clms_FCOVER_SOAM import run_fcover_soam_clipping
-from LAI.clip_clms_LAI_AFRI import run_lai_afri_clipping
-from LAI.clip_clms_LAI_SOAM import run_lai_soam_clipping
+from DMP.clip_clms_DMP_AFRI_V2 import run_dmp_afri_clipping
+from DMP.clip_clms_DMP_SOAM_V2 import run_dmp_soam_clipping
+from NDVI.clip_clms_NDVI_AFRI_V3 import run_ndvi_afri_clipping
+from NDVI.clip_clms_NDVI_SOAM_V3 import run_ndvi_soam_clipping
+from FAPAR.clip_clms_FAPAR_AFRI_V2 import run_fapar_afri_clipping
+from FAPAR.clip_clms_FAPAR_SOAM_V2 import run_fapar_soam_clipping
+from FCOVER.clip_clms_FCOVER_AFRI_V2 import run_fcover_afri_clipping
+from FCOVER.clip_clms_FCOVER_SOAM_V2 import run_fcover_soam_clipping
+from LAI.clip_clms_LAI_AFRI_V2 import run_lai_afri_clipping
+from LAI.clip_clms_LAI_SOAM_V2 import run_lai_soam_clipping
 
 # --- Configuration ---
 PROCESSED_LIST_FILE = "/home/eouser/clms/config/processed_input_files.txt"
@@ -116,11 +116,11 @@ def run_clipper_process(product_var, target_date, filename_base, base_dir_key, r
 
     # 1. Base directory map and lookup
     base_dirs = {
-        "NDVI": "/eodata/CLMS/bio-geophysical/vegetation_indices/ndvi_global_300m_10daily_v2",
-        "DMP": "/eodata/CLMS/bio-geophysical/dry-gross_dry_matter_productivity/dmp_global_300m_10daily_v1",
-        "FAPAR": "/eodata/CLMS/bio-geophysical/vegetation_properties/fapar_global_300m_10daily_v1",
-        "FCOVER": "/eodata/CLMS/bio-geophysical/vegetation_properties/fcover_global_300m_10daily_v1",
-        "LAI": "/eodata/CLMS/bio-geophysical/vegetation_properties/lai_global_300m_10daily_v1",
+        "NDVI": "/eodata/CLMS/bio-geophysical/vegetation_indices/ndvi_global_300m_10daily_v3",
+        "DMP": "/eodata/CLMS/bio-geophysical/dry-gross_dry_matter_productivity/dmp_global_300m_10daily_v2",
+        "FAPAR": "/eodata/CLMS/bio-geophysical/vegetation_properties/fapar_global_300m_10daily_v2",
+        "FCOVER": "/eodata/CLMS/bio-geophysical/vegetation_properties/fcover_global_300m_10daily_v2",
+        "LAI": "/eodata/CLMS/bio-geophysical/vegetation_properties/lai_global_300m_10daily_v2",
     }
 
     base_dir = base_dirs.get(base_dir_key)
@@ -236,7 +236,7 @@ def run_ndvi_clipper(roi="AFRI"):
     target_date = get_target_date(today)
 
     # NDVI filename structure
-    filename_base = "c_gls_NDVI300_{year}{month}{day}0000_GLOBE_OLCI_V2.0.1_nc/c_gls_NDVI300_{year}{month}{day}0000_GLOBE_OLCI_V2.0.1.nc"
+    filename_base = "c_gls_NDVI300_{year}{month}{day}0000_GLOBE_OLCI_V3.0.1_nc/c_gls_NDVI300_{year}{month}{day}0000_GLOBE_OLCI_V3.0.1.nc"
 
     run_clipper_process(
         product_var="NDVI",
@@ -252,7 +252,7 @@ def run_dmp_clipper(roi="AFRI"):
     target_date = get_fapar_target_date(today)
 
     # DMP filename structure
-    filename_base = "c_gls_DMP300-RT0_{year}{month}{day}0000_GLOBE_OLCI_V1.1.1_nc/c_gls_DMP300-RT0_{year}{month}{day}0000_GLOBE_OLCI_V1.1.1.nc"
+    filename_base = "c_gls_DMP300-RT0_{year}{month}{day}0000_GLOBE_OLCI_V2.0.1_nc/c_gls_DMP300-RT0_{year}{month}{day}0000_GLOBE_OLCI_V2.0.1.nc"
 
     run_clipper_process(
         product_var="DMP",
@@ -268,7 +268,7 @@ def run_vegetation_properties_clipper(var="FAPAR", roi="AFRI"):
     target_date = get_fapar_target_date(today)
 
     # VP filename structure (uses {var} placeholder)
-    filename_base = "c_gls_{var}300-RT0_{year}{month}{day}0000_GLOBE_OLCI_V1.1.1_nc/c_gls_{var}300-RT0_{year}{month}{day}0000_GLOBE_OLCI_V1.1.1.nc"
+    filename_base = "c_gls_{var}300-RT0_{year}{month}{day}0000_GLOBE_OLCI_V2.0.1_nc/c_gls_{var}300-RT0_{year}{month}{day}0000_GLOBE_OLCI_V2.0.1.nc"
 
     run_clipper_process(
         product_var=var,
