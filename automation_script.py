@@ -2,16 +2,16 @@ import subprocess
 import datetime
 import os
 import logging
-from .DMP.clip_clms_DMP_AFRI import run_dmp_afri_clipping
-from .DMP.clip_clms_DMP_SOAM import run_dmp_soam_clipping
-from .NDVI.clip_clms_NDVI_AFRI import run_ndvi_afri_clipping
-from .NDVI.clip_clms_NDVI_SOAM import run_ndvi_soam_clipping
-from .FAPAR.clip_clms_FAPAR_AFRI import run_fapar_afri_clipping
-from .FAPAR.clip_clms_FAPAR_SOAM import run_fapar_soam_clipping
-from .FCOVER.clip_clms_FCOVER_AFRI import run_fcover_afri_clipping
-from .FCOVER.clip_clms_FCOVER_SOAM import run_fcover_soam_clipping
-from .LAI.clip_clms_LAI_AFRI import run_lai_afri_clipping
-from .LAI.clip_clms_LAI_SOAM import run_lai_soam_clipping
+from DMP.clip_clms_DMP_AFRI import run_dmp_afri_clipping
+from DMP.clip_clms_DMP_SOAM import run_dmp_soam_clipping
+from NDVI.clip_clms_NDVI_AFRI import run_ndvi_afri_clipping
+from NDVI.clip_clms_NDVI_SOAM import run_ndvi_soam_clipping
+from FAPAR.clip_clms_FAPAR_AFRI import run_fapar_afri_clipping
+from FAPAR.clip_clms_FAPAR_SOAM import run_fapar_soam_clipping
+from FCOVER.clip_clms_FCOVER_AFRI import run_fcover_afri_clipping
+from FCOVER.clip_clms_FCOVER_SOAM import run_fcover_soam_clipping
+from LAI.clip_clms_LAI_AFRI import run_lai_afri_clipping
+from LAI.clip_clms_LAI_SOAM import run_lai_soam_clipping
 
 # --- Configuration ---
 PROCESSED_LIST_FILE = "/home/eouser/clms/config/processed_input_files.txt"
@@ -70,7 +70,13 @@ def get_target_date(current_date):
     """
     current_day = current_date.day
     if 1 <= current_day <= 10:
-        target_date = datetime.date(current_date.year, current_date.month, 1) - datetime.timedelta(days=10)
+        # target_date = datetime.date(current_date.year, current_date.month, 1) - datetime.timedelta(days=15)
+        # 1. Get the first day of the current month
+        first_day_current_month = current_date.replace(day=1)
+        # 2. Subtract one day to get the last day of the previous month
+        last_day_previous_month = first_day_current_month - datetime.timedelta(days=1)
+        # 3. Replace the day with 21 to get the target date
+        target_date = last_day_previous_month.replace(day=21)
     elif 11 <= current_day <= 20:
         target_date = datetime.date(current_date.year, current_date.month, 1)
     else:  # current_day >= 21
@@ -137,7 +143,7 @@ def run_clipper_process(product_var, target_date, filename_base, base_dir_key, r
     # --- CHECK if already processed ---
     processed_files = load_processed_list(PROCESSED_LIST_FILE)
 
-    if filename in processed_files:
+    if filename+"_"+roi in processed_files:
         logging.info(f"{log_prefix} SKIP: '{filename}' found in processed list. Subprocess skipped.")
         return  # Exit the function if already processed
 
@@ -155,19 +161,19 @@ def run_clipper_process(product_var, target_date, filename_base, base_dir_key, r
     elif product_var == "NDVI" and roi == "AFRI":
         clipper_function = run_ndvi_afri_clipping
     elif product_var == "NDVI" and roi == "SOAM":
-        clipper_function = run_ndvi_soam_clipping()
+        clipper_function = run_ndvi_soam_clipping
     elif product_var == "FAPAR" and roi == "AFRI":
-        clipper_function = run_fapar_afri_clipping()
+        clipper_function = run_fapar_afri_clipping
     elif product_var == "FAPAR" and roi == "SOAM":
-        clipper_function = run_fapar_soam_clipping()
+        clipper_function = run_fapar_soam_clipping
     elif product_var == "FCOVER" and roi == "AFRI":
-        clipper_function = run_fcover_afri_clipping()
+        clipper_function = run_fcover_afri_clipping
     elif product_var == "FCOVER" and roi == "SOAM":
-        clipper_function = run_fcover_soam_clipping()
+        clipper_function = run_fcover_soam_clipping
     elif product_var == "LAI" and roi == "AFRI":
-        clipper_function = run_lai_afri_clipping()
+        clipper_function = run_lai_afri_clipping
     elif product_var == "LAI" and roi == "SOAM":
-        clipper_function = run_lai_soam_clipping()
+        clipper_function = run_lai_soam_clipping
 
     if not clipper_function:
         logging.error(f"{log_prefix} No direct function call available for this product/ROI. Skipping.")
@@ -188,7 +194,7 @@ def run_clipper_process(product_var, target_date, filename_base, base_dir_key, r
         # 2. Check if the generated zip file exists at the reported location
         if os.path.exists(zip_file_location):
             # A. Track the original input file (filename) as processed
-            write_to_processed_list(PROCESSED_LIST_FILE, filename)
+            write_to_processed_list(PROCESSED_LIST_FILE, filename+"_"+roi)
 
             # B. Track the successful output zip file
             zip_filename_only = os.path.basename(zip_file_location)
@@ -276,7 +282,7 @@ def run_vegetation_properties_clipper(var="FAPAR", roi="AFRI"):
 if __name__ == "__main__":
     logging.info("==================================================")
     logging.info("Clipper Automation Script Started")
-    logging.info("==================================================")
+    logging.info("=========================== =======================")
 
     # Example runs
     run_ndvi_clipper(roi="AFRI")

@@ -880,7 +880,7 @@ def run_ndvi_soam_clipping(filepathname):
     destination_xml = os.path.join(directory_name,"c_gls_NDVI300_PROD-DESC_"+date_str+"_SOAM_OLCI_V2.0.1.xml")
     ql_filename = thumbFilename.split('/')[-1]+".tiff"
     ##### XML ####
-    xml_file_path = "CGLS_NDVI300_V2_S3_ProductSet_PDF_SOAM.xml"
+    xml_file_path =  os.path.join(dir_in,"CGLS_NDVI300_V2_S3_ProductSet_PDF_SOAM.xml")
     main_modify_XML(date_str, ql_filename, destination_xml, xml_file_path)
 
     #### Zip the folder ###

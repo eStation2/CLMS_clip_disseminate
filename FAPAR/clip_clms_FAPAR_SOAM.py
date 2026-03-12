@@ -595,7 +595,7 @@ def zip_files_with_prefix(source_directory, zip_file_name, prefix=""):
     print(f"Zip file '{zip_file_name}' created successfully with prefixed files.")
 
 
-def run_fapar_soam_clipping(filepathname)
+def run_fapar_soam_clipping(filepathname):
     dir_in = "/home/eouser/clms/FAPAR"
     dir_out = "/home/eouser/clms/outputs/sam/"
     # Ensure the directory path ends with a separator if it's not already
