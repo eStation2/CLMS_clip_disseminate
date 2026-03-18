@@ -137,24 +137,13 @@ def clip_and_package(
     xml_modifier(date_str, ql_filename, destination_xml, *args, **kwargs)
 
     # Zip and clean up
-    output_zip_name = os.path.join(output_dir, os.path.splitext(os.path.basename(output_file))[0])
+    # Create zip in dir_out, not in the date subdirectory
+    output_zip_name = os.path.join(dir_out, os.path.splitext(os.path.basename(output_file))[0])
     output_zip_path = output_zip_name + ".zip"
     zip_files_with_prefix(output_dir, output_zip_path, prefix=date_str[0:8] + "/")
 
     if cleanup:
-        # Clean up intermediate files (the clipped data, XML, thumbnails) but preserve the zip
-        for item in os.listdir(output_dir):
-            item_path = os.path.join(output_dir, item)
-            if item_path != output_zip_path:  # Don't delete the zip file
-                if os.path.isfile(item_path):
-                    try:
-                        os.remove(item_path)
-                    except OSError:
-                        pass
-                elif os.path.isdir(item_path):
-                    try:
-                        shutil.rmtree(item_path)
-                    except OSError:
-                        pass
+        # Clean up the date subdirectory after zipping
+        shutil.rmtree(output_dir)
 
     return output_zip_path
