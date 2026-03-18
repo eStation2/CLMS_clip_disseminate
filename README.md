@@ -19,10 +19,16 @@ All the configuration, logs, scripts, and output data live under:
 /home/eouser/clms
 ```
 
+The CLMS clipping repository is cloned into:
+```
+/home/eouser/clms/CLMS_clip_disseminate
+```
+
 ### Important directories
 - **Configuration:** `/home/eouser/clms/config/`
 - **Logs:** `/home/eouser/clms/logs/`
 - **Output:** `/home/eouser/clms/outputs/`
+- **Scripts:** `/home/eouser/clms/CLMS_clip_disseminate/`
 
 ---
 
@@ -34,19 +40,19 @@ The system is driven by cron jobs that run the main automation script on a sched
 ```cron
 # m h  dom mon dow   command
 # Run once in the evening (7 PM) on the 1st, 11th and 21st
-0 19 1,11,21 * * /usr/bin/python3 /home/eouser/clms/automation_script.py
+0 19 1,11,21 * * /usr/bin/python3 /home/eouser/clms/CLMS_clip_disseminate/automation_script.py
 
 # Run 4 times (every 6 hours) on the 2nd, 12th and 22nd
-0 */6 2,12,22 * * /usr/bin/python3 /home/eouser/clms/automation_script.py
+0 */6 2,12,22 * * /usr/bin/python3 /home/eouser/clms/CLMS_clip_disseminate/automation_script.py
 
 # Run twice  (1 AM and 3AM) on the 3rd, 13th and 23rd
-0 1,3 3,13,23 * * /usr/bin/python3 /home/eouser/clms/automation_script.py
+0 1,3 3,13,23 * * /usr/bin/python3 /home/eouser/clms/CLMS_clip_disseminate/automation_script.py
 
 # Africa Dissemination (4am, 2am) on the 2nd,3rd, 12th, 13th, 22nd and 23rd for Africa
-0 2,4 2,3,12,13,22,23 * * /usr/bin/python3 /home/eouser/clms/dissemination_afr.py
+0 2,4 2,3,12,13,22,23 * * /usr/bin/python3 /home/eouser/clms/CLMS_clip_disseminate/dissemination_afr.py
 
 # South America Dissemination (5am and 2am) on the 4th, 14th and 24th for SOAM
-0 2,5 4,14,24 * * /usr/bin/python3 /home/eouser/clms/dissemination_soam.py
+0 2,5 4,14,24 * * /usr/bin/python3 /home/eouser/clms/CLMS_clip_disseminate/dissemination_soam.py
 ```
 
 > ✅ The scripts may run multiple times for the same dekad, but the process is idempotent: it checks configuration lists before doing work and will skip already-processed products.
@@ -120,7 +126,7 @@ python compareProduct.py -t /tmp -r reference/c_gls_FAPAR300-RT0_202505100000_AF
 
 From the CDSE machine:
 ```bash
-cd /home/eouser/clms
+cd /home/eouser/clms/CLMS_clip_disseminate
 python3 automation_script.py
 ```
 
