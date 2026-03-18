@@ -19,17 +19,25 @@ def compare_xml(file1, file2):
     def recursive_compare(elem1, elem2, path=""):
         if elem1.tag != elem2.tag:
             diffs.append(f"Different tags at {path}: {elem1.tag} vs {elem2.tag}")
-        if elem1.text == None:
-            print (elem1.tag)
-        if elem2.text == None:
-            print (elem2.tag)
-        if elem1.text and elem1.text.strip() != elem2.text.strip():
-            diffs.append(f"Text mismatch at {path}/{elem1.tag}: {elem1.text} vs {elem2.text}")
+        # Compare text content, handling None values
+        text1 = elem1.text.strip() if elem1.text else ""
+        text2 = elem2.text.strip() if elem2.text else ""
+        if text1 != text2:
+            diffs.append(f"Text mismatch at {path}/{elem1.tag}: '{text1}' vs '{text2}'")
         if elem1.attrib != elem2.attrib:
             diffs.append(f"Attributes mismatch at {path}/{elem1.tag}: {elem1.attrib} vs {elem2.attrib}")
 
-        for sub_elem1, sub_elem2 in zip(elem1, elem2):
-            recursive_compare(sub_elem1, sub_elem2, path + "/" + elem1.tag)
+        # Compare child elements, handling different numbers of children
+        children1 = list(elem1)
+        children2 = list(elem2)
+        if len(children1) != len(children2):
+            diffs.append(f"Different number of children at {path}/{elem1.tag}: {len(children1)} vs {len(children2)}")
+            # Compare only the common children
+            for i, (sub_elem1, sub_elem2) in enumerate(zip(children1, children2)):
+                recursive_compare(sub_elem1, sub_elem2, f"{path}/{elem1.tag}[{i}]")
+        else:
+            for i, (sub_elem1, sub_elem2) in enumerate(zip(children1, children2)):
+                recursive_compare(sub_elem1, sub_elem2, f"{path}/{elem1.tag}[{i}]")
 
     recursive_compare(root1, root2)
     

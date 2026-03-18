@@ -75,9 +75,9 @@ def compare_pixel_values(file1, file2):
     return diffs
 
 def compare_pixel_values_per_variable(file1, file2, variable):
-    # Open datasets with dask for efficient processing
-    ds1 = xr.open_dataset(file1, chunks={}, decode_cf=False)
-    ds2 = xr.open_dataset(file2, chunks={}, decode_cf=False)
+    # Open datasets without chunking (dask not available)
+    ds1 = xr.open_dataset(file1, chunks=None, decode_cf=False)
+    ds2 = xr.open_dataset(file2, chunks=None, decode_cf=False)
     
     var1 = ds1[variable]
     var2 = ds2[variable]
