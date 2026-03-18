@@ -9,6 +9,11 @@ import os, sys
 import numpy as np
 from osgeo import gdal
 import glob
+
+# Ensure the repository root is on sys.path when running this script from the module folder.
+# This allows importing shared helpers from the repo root regardless of current working directory.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from clms_clipper_common import clip_and_package
 def createColorTable(colorTable):
     with open(colorTable, 'r') as hColorTable:
         ctLines = hColorTable.readlines()
@@ -250,167 +255,140 @@ def replace_xml_parameters(xml_file_path, params_dict, output_file_path=None):
 
 
 def clip_all_vars_netcdf4(input_nc_file, output_nc_file, lat_range=None, lon_range=None,
-                           origin_lat=None, origin_lon=None, clip_width=None, clip_height=None,
-                           compress=True,  complevel=9, data_vars = None, identifier=None, parent_identifier=None):
+                          origin_lat=None, origin_lon=None, clip_width=None, clip_height=None,
+                          compress=True, complevel=9, data_vars=None, identifier=None, parent_identifier=None):
     """
-    Clips all variables in a NetCDF file based on either latitude/longitude ranges
-    OR by providing an origin (top-left) coordinate and desired width/height in pixels.
-    Specifically adapted for the structure of c_gls_LAI300 data.
-    Adds optional zlib compression.
-    :param identifier:
-    :param parent_identifier:
+    Clips NetCDF4 variables using a memory-efficient row-block (chunk-aware) approach.
+    Optimized for large c_gls_FCOVER300 datasets.
     """
     try:
         with nc.Dataset(input_nc_file, 'r') as src, nc.Dataset(output_nc_file, 'w', format='NETCDF4') as dst:
-            # Disable automatic masking for the source dataset
-            # This is the key change to avoid interpreting valid_range and _FillValue during read.
+            # 1. Disable auto-masking to handle raw data/FillValues correctly
             src.set_auto_mask(False)
-            # Copy global attributes
+
+            # 2. Global Metadata
             dst.setncatts(src.__dict__)
             dst.identifier = identifier
             dst.parent_identifier = parent_identifier
-            dst.title = src.title.replace("GLOBE", "SOAM")
-            dst.history = src.history+ " \n"+datetime.today().strftime("%Y-%m-%d")+': CLMS Clipping tool for South-America' #+src.history.split(':')[-1]
-            # Get latitude and longitude variables and values
+            if hasattr(src, 'title'):
+                dst.title = src.title.replace("GLOBE", "SOAM")
+            
+            history_entry = f"\n{datetime.today().strftime('%Y-%m-%d')}: CLMS Clipping tool for South-America"
+            dst.history = getattr(src, 'history', "") + history_entry
+
+            # 3. Coordinate Setup
             lat_var = src.variables['lat']
             lon_var = src.variables['lon']
             lat_values = lat_var[:]
             lon_values = lon_var[:]
 
-            lat_indices = slice(None)
-            lon_indices = slice(None)
-            output_height = len(src.dimensions['lat'])
-            output_width = len(src.dimensions['lon'])
+            lat_start_idx, lat_end_idx = 0, len(lat_values)
+            lon_start_idx, lon_end_idx = 0, len(lon_values)
 
-            # --- Determine clipping indices based on origin_lat/lon and width/height ---
-            if origin_lat is not None and origin_lon is not None and clip_width is not None and clip_height is not None:
-                # Find the index of the origin latitude (top-left)
-                # Assuming 'lat' values are typically decreasing (from North to South)
-                # Find the closest latitude value to origin_lat (top-left)
+            # --- Logic for origin_lat/lon ---
+            if all(v is not None for v in [origin_lat, origin_lon, clip_width, clip_height]):
                 lat_start_idx = np.argmin(np.abs(lat_values - origin_lat))
+                # Shift lon by +1 as per your specific requirement
+                lon_start_idx = min(np.argmin(np.abs(lon_values - origin_lon)) + 1, len(lon_values) - 1)
+                
+                lat_end_idx = min(lat_start_idx + clip_height, len(lat_values))
+                lon_end_idx = min(lon_start_idx + clip_width, len(lon_values))
 
-                # Find the closest longitude value to origin_lon (top-left)
-                lon_start_idx = np.argmin(np.abs(lon_values - origin_lon))
-
-                # --- MODIFICATION START ---
-                # Remove one pixel from the left (increase lon_start_idx by 1)
-                lon_start_idx = min(lon_start_idx + 1, len(lon_values) - 1) # Ensure it doesn't go out of bounds
-
-                # Add one pixel to the right (increase clip_width by 1)
-                adjusted_clip_width = clip_width #+ 1
-                # --- MODIFICATION END ---
-
-                # Calculate the end indices based on origin and desired width/height
-                lat_end_idx = lat_start_idx + clip_height
-                lon_end_idx = lon_start_idx + adjusted_clip_width # Use adjusted_clip_width here
-
-                # Ensure indices are within bounds of the original data
-                lat_end_idx = min(lat_end_idx, len(lat_values))
-                lon_end_idx = min(lon_end_idx, len(lon_values))
-
-                # Adjust start index if the calculated end index exceeds the bounds
-                # This ensures we get exactly `clip_height` or `adjusted_clip_width` pixels
-                if (lat_end_idx - lat_start_idx) < clip_height:
-                    lat_start_idx = max(0, lat_end_idx - clip_height)
-                if (lon_end_idx - lon_start_idx) < adjusted_clip_width: # Use adjusted_clip_width here
-                    lon_start_idx = max(0, lon_end_idx - adjusted_clip_width)
-
-
-                lat_indices = slice(lat_start_idx, lat_end_idx)
-                lon_indices = slice(lon_start_idx, lon_end_idx)
-
-                output_height = len(lat_values[lat_indices])
-                output_width = len(lon_values[lon_indices])
-
-                if output_height != clip_height or output_width != adjusted_clip_width: # Compare with adjusted_clip_width
-                    print(f"Warning: Clipped dimensions ({output_width}x{output_height}) do not exactly match "
-                          f"requested dimensions ({adjusted_clip_width}x{clip_height}). This can happen if the origin "
-                          f"is too close to the edge of the input data.")
-
-            # --- OR Determine clipping indices based on lat_range/lon_range (original logic) ---
+            # --- Logic for lat_range/lon_range ---
             elif lat_range is not None or lon_range is not None:
                 if lat_range is not None:
-                    lat_start_index = np.argmin(np.abs(lat_values - lat_range[0]))
-                    lat_end_index = np.argmin(np.abs(lat_values - lat_range[1])) + 1
-                    lat_indices = slice(min(lat_start_index, lat_end_index), max(lat_start_index, lat_end_index))
-                    output_height = len(lat_values[lat_indices])
-
+                    i1 = np.argmin(np.abs(lat_values - lat_range[0]))
+                    i2 = np.argmin(np.abs(lat_values - lat_range[1]))
+                    lat_start_idx, lat_end_idx = min(i1, i2), max(i1, i2) + 1
                 if lon_range is not None:
-                    lon_start_index = np.argmin(np.abs(lon_values - lon_range[0]))
-                    lon_end_index = np.argmin(np.abs(lon_values - lon_range[1])) + 1
+                    i1 = np.argmin(np.abs(lon_values - lon_range[0]))
+                    i2 = np.argmin(np.abs(lon_values - lon_range[1]))
+                    # Shift lon by +1 as per your specific requirement
+                    lon_start_idx = min(min(i1, i2) + 1, len(lon_values) - 1)
+                    lon_end_idx = min(max(i1, i2) + 1, len(lon_values))
 
-                    # --- MODIFICATION FOR lon_range START ---
-                    # Remove one pixel from the left
-                    lon_start_index = min(lon_start_index + 1, len(lon_values) - 1)
-                    # Add one pixel to the right (by extending the end index)
-                    lon_end_index = min(lon_end_index + 1, len(lon_values))
-                    # --- MODIFICATION FOR lon_range END ---
+            # Calculate final dimensions
+            output_height = lat_end_idx - lat_start_idx
+            output_width = lon_end_idx - lon_start_idx
+            lat_indices = slice(lat_start_idx, lat_end_idx)
+            lon_indices = slice(lon_start_idx, lon_end_idx)
 
-                    lon_indices = slice(min(lon_start_index, lon_end_index), max(lon_start_index, lon_end_index))
-                    output_width = len(lon_values[lon_indices])
-            else:
-                print("No clipping parameters provided. Output file will be a full copy.")
-
-            # --- Create Dimensions and Variables in Output NetCDF ---
+            # 4. Create Dimensions
             dst.createDimension('lat', output_height)
-            out_lat_var = dst.createVariable('lat', lat_var.dtype, ('lat',), zlib=compress, complevel=complevel)
-            out_lat_var[:] = lat_values[lat_indices]
-            out_lat_var.setncatts(lat_var.__dict__)
-
             dst.createDimension('lon', output_width)
-            out_lon_var = dst.createVariable('lon', lon_var.dtype, ('lon',), zlib=compress, complevel=complevel)
-            out_lon_var[:] = lon_values[lon_indices]
-            out_lon_var.setncatts(lon_var.__dict__)
-
-            # Copy the time dimension and variable with compression
-            if 'time' in src.dimensions: # Check if 'time' dimension exists
+            if 'time' in src.dimensions:
                 dst.createDimension('time', len(src.dimensions['time']))
-                out_time_var = dst.createVariable('time', src.variables['time'].dtype, ('time',), zlib=compress, complevel=complevel)
-                out_time_var[:] = src.variables['time'][:]
-                out_time_var.setncatts(src.variables['time'].__dict__)
 
-            # Copy the crs variable with compression
-            if 'crs' in src.variables: # Check if 'crs' variable exists
-                out_crs_var = dst.createVariable('crs', src.variables['crs'].dtype, src.variables['crs'].dimensions, zlib=compress, complevel=complevel)
-                out_crs_var[:] = src.variables['crs'][:]
-                out_crs_var.setncatts(src.variables['crs'].__dict__)
+            # 5. Copy Coordinate Variables
+            out_lat = dst.createVariable('lat', lat_var.dtype, ('lat',), zlib=compress, complevel=complevel)
+            out_lat[:] = lat_values[lat_indices]
+            out_lat.setncatts(lat_var.__dict__)
 
-            # Example: chunking along time, then 2160x1920 for y and x
-            new_chunks = (1, 1920, 1920)  # Example: (time_chunk, y_chunk, x_chunk)
+            out_lon = dst.createVariable('lon', lon_var.dtype, ('lon',), zlib=compress, complevel=complevel)
+            out_lon[:] = lon_values[lon_indices]
+            out_lon.setncatts(lon_var.__dict__)
 
-            # Clip and copy data variables with compression
+            if 'time' in src.variables:
+                t_var = src.variables['time']
+                out_time = dst.createVariable('time', t_var.dtype, ('time',), zlib=compress, complevel=complevel)
+                out_time[:] = t_var[:]
+                out_time.setncatts(t_var.__dict__)
+
+            if 'crs' in src.variables:
+                crs_var = src.variables['crs']
+                out_crs = dst.createVariable('crs', crs_var.dtype, crs_var.dimensions)
+                out_crs.setncatts(crs_var.__dict__)
+
+            # 6. Data Variable Loop (Memory Optimized)
             for var_name in data_vars:
-                if var_name in src.variables:
-                    var = src.variables[var_name]
-                    # Determine dimensions for the output variable
-                    var_dims = []
-                    if 'time' in var.dimensions:
-                        var_dims.append('time')
-                    if 'lat' in var.dimensions:
-                        var_dims.append('lat')
-                    if 'lon' in var.dimensions:
-                        var_dims.append('lon')
+                if var_name not in src.variables:
+                    print(f"Variable {var_name} not found in source. Skipping.")
+                    continue
 
-                    if var_dims: # Only proceed if it's a spatial/temporal variable
-                        out_var = dst.createVariable(var_name, var.dtype, tuple(var_dims), zlib=compress, complevel=complevel, chunksizes=new_chunks)
-                        out_var.setncatts(var.__dict__)
+                var = src.variables[var_name]
+                
+                # Determine Chunks (Using your specified sizes)
+                # Format: (Time, Lat, Lon)
+                # if var_name == "NDVI_unc":
+                #     new_chunks = (1, 1415, 1415)
+                # else:
+                new_chunks = (1, 1920, 1920)
+                
+                # Adjust chunks if they exceed the output size
+                safe_chunks = (
+                    new_chunks[0],
+                    min(new_chunks[1], output_height),
+                    min(new_chunks[2], output_width)
+                )
 
-                        # Apply slicing based on the variable's dimensions
-                        if 'time' in var.dimensions and 'lat' in var.dimensions and 'lon' in var.dimensions:
-                            out_var[:] = var[:, lat_indices, lon_indices]
-                        elif 'lat' in var.dimensions and 'lon' in var.dimensions:
-                            out_var[:] = var[lat_indices, lon_indices]
-                        else: # Handle other possible dimension orders if needed, or skip
-                            print(f"Warning: Variable '{var_name}' has an unexpected combination of dimensions. Skipping clipping for this variable.")
-                            # For simplicity, if it's not a (time, lat, lon) or (lat, lon) variable, copy it fully or skip
-                            out_var[:] = var[:] # Copy full variable if dims not matched for clipping
-                    else:
-                        # If it's a scalar or 1D variable not related to time/lat/lon
-                        out_var = dst.createVariable(var_name, var.dtype, var.dimensions, zlib=compress, complevel=complevel, chunksizes=new_chunks)
-                        out_var.setncatts(var.__dict__)
-                        out_var[:] = var[:]
+                # Create variable with compression and chunking
+                out_var = dst.createVariable(var_name, var.dtype, var.dimensions, 
+                                             zlib=compress, complevel=complevel, 
+                                             chunksizes=safe_chunks)
+                out_var.setncatts(var.__dict__)
 
-            print(f"Successfully clipped '{input_nc_file}' and saved to '{output_nc_file}' with compression level {complevel}")
+                # --- CHUNKED DATA TRANSFER ---
+                if 'lat' in var.dimensions and 'lon' in var.dimensions:
+                    row_step = safe_chunks[1] # Process by the chunk height
+                    
+                    for start_r in range(0, output_height, row_step):
+                        end_r = min(start_r + row_step, output_height)
+                        
+                        # Source slice relative to the original file
+                        src_lat_slice = slice(lat_start_idx + start_r, lat_start_idx + end_r)
+                        
+                        if 'time' in var.dimensions:
+                            # Transfer 3D block (all time, current row ribbon, all selected lon)
+                            out_var[:, start_r:end_r, :] = var[:, src_lat_slice, lon_indices]
+
+                        else:
+                            # Transfer 2D block
+                            out_var[start_r:end_r, :] = var[src_lat_slice, lon_indices]
+                else:
+                    # Scalar or non-spatial variables
+                    out_var[:] = var[:]
+
+            print(f"Successfully processed {output_nc_file}")
 
     except Exception as e:
         print(f"An error occurred: {e}")      
@@ -595,84 +573,40 @@ def zip_files_with_prefix(source_directory, zip_file_name, prefix=""):
     print(f"Zip file '{zip_file_name}' created successfully with prefixed files.")
 
 
-def run_fcover_soam_clipping(filepathname):
-    dir_in = "/home/eouser/clms/FCOVER"
-    dir_out = "/home/eouser/clms/outputs/sam/"
-    # Ensure the directory path ends with a separator if it's not already
-    if not dir_in.endswith(os.sep): dir_in += os.sep
-    if not dir_out.endswith(os.sep): dir_out += os.sep
-    
+def run_fcover_soam_clipping(filepathname, dir_out="/home/eouser/clms/outputs/sam/"):
+    dir_in = os.path.dirname(__file__)
     desired_width = 26880
     desired_height = 26880
     origin_lat = 20.001488095238095
     origin_lon = -110.001488095238102
     var_name = 'FCOVER'
-    
+
     # --- Version Updates ---
     version = 'V2.0.1'  # Replaced V1.1.1 with V2.0.1
     v_num = 'v2'        # Replaced v1 with v2
-    
+
     date_str = os.path.basename(filepathname).split("_")[3]
-    directory_name = dir_out + date_str[0:8]
-    os.makedirs(directory_name, exist_ok=True)
-    
-    # Updated identifiers with v2 and V2.0.1
+
     identifier = f'urn:cgls:south-america:fcover300_{v_num}_333m:{var_name}300-RT0_{date_str}_SOAM_OLCI_{version}'
     parent_identifier = f'urn:cgls:south-america:fcover300_{v_num}_333m'
-    
-    # 1. Split the filename by "_"
-    dire, filename = os.path.split(filepathname)
-    parts = filename.split("_")
-    # 2. Find the index of the part containing "GLOBE" and replace it
-    for i, part in enumerate(parts):
-        if "GLOBE" in part:
-            parts[i] = part.replace("GLOBE", "SOAM")
-            break 
-    # 3. Join the parts back together with "_"
-    output_file = os.path.join(directory_name, "_".join(parts))
 
-    ##### CLIP NETCDF4 ####
-    print('filename:' + str(filepathname) + ' output_file:\n' + output_file)
-    clip_all_vars_netcdf4(filepathname, output_file, origin_lat=origin_lat, origin_lon=origin_lon, 
-                          clip_width=desired_width, clip_height=desired_height, 
-                          data_vars=['FCOVER', 'LENGTH_AFTER', 'LENGTH_BEFORE', 'NOBS', 'QFLAG', 'RMSE'], 
-                          identifier=identifier, parent_identifier=parent_identifier)
+    destination_xml = os.path.join(
+        dir_out,
+        date_str[0:8],
+        f"c_gls_{var_name}300-RT0_PROD-DESC_{date_str}_SOAM_OLCI_{version}.xml",
+    )
 
-    ##### Thumbnail view ####
-    parts_thumb = os.path.splitext(output_file)[0].split("_")
-    if len(parts_thumb) > 3:
-        parts_thumb.insert(3, "QL")
-    thumbFilename = "_".join(parts_thumb)
-    print('thumbFilename:' + str(thumbFilename))
-    colorTable = os.path.join(dir_in, "cgl_colorTable_FCOVER.txt")
-    thumbnail_view(output_file, thumbFilename, colorTable)
-    
-    ## Remove the aux file
-    aux_file = thumbFilename + ".tiff.aux.xml"
-    if os.path.exists(aux_file):
-        try:
-            os.remove(aux_file)
-            print(f"File '{aux_file}' removed successfully.")
-        except OSError as e:
-            print(f"Error removing file '{aux_file}': {e}")
-
-    ##### XML ####
-    destination_xml = os.path.join(directory_name, f"c_gls_{var_name}300-RT0_PROD-DESC_{date_str}_SOAM_OLCI_{version}.xml")
     today = datetime.today().strftime("%Y-%m-%d")
     datetime_object = datetime.strptime(date_str, "%Y%m%d%H%M")
     formatted_date = datetime_object.strftime("%Y-%m-%d")
 
-    time_coverage_end = datetime_object.strftime("%Y-%m-%dT23:59:59")
     if datetime_object.day == 10:
         start_date = datetime_object.replace(day=1)
     elif datetime_object.day == 20:
         start_date = datetime_object.replace(day=11)
     else:
         start_date = datetime_object.replace(day=21)
-    
-    time_coverage_start = start_date.strftime("%Y-%m-%dT00:00:00")
-    ql_filename = thumbFilename.split('/')[-1] + ".tiff"
-    
+
     params_dict = {
         "identifier": identifier,
         "parent_identifier": parent_identifier,
@@ -690,26 +624,34 @@ def run_fcover_soam_clipping(filepathname):
         "previous_product_identifier": "",
         "alternate_title": f"{var_name}300-RT0_{date_str}_SOAM_OLCI_{version}",
         "product_date": formatted_date,
-        "time_coverage_start": time_coverage_start,
-        "time_coverage_end": time_coverage_end,
+        "time_coverage_start": start_date.strftime("%Y-%m-%dT00:00:00"),
+        "time_coverage_end": datetime_object.strftime("%Y-%m-%dT23:59:59"),
         "product_version": version,
-        "ql_filename": ql_filename
+        # ql_filename will be injected by the shared helper
+        "ql_filename": "",
     }
-    
+
     xml_file_path = os.path.join(dir_in, f"CGLS_{var_name}300_V1_S3_ProductSet_PDF_SOAM.xml")
-    main_modify_XML(date_str, ql_filename, destination_xml, params_dict, xml_file_path=xml_file_path)
 
-    ### Zip the folder ###
-    output_zip_name = os.path.join(dir_out, os.path.splitext(os.path.basename(output_file))[0])
-    try:
-        zip_files_with_prefix(directory_name, output_zip_name + '.zip', date_str[0:8] + '/')
-    except Exception as e:
-        print(f"Error zipping folder: {e}")
-
-    ## Clean up dummy folder
-    shutil.rmtree(directory_name)
-    final_zip_path = output_zip_name + '.zip'
-    return final_zip_path
+    return clip_and_package(
+        filepathname=filepathname,
+        dir_in=dir_in,
+        dir_out=dir_out,
+        roi="SOAM",
+        desired_width=desired_width,
+        desired_height=desired_height,
+        origin_lat=origin_lat,
+        origin_lon=origin_lon,
+        data_vars=["FCOVER", "LENGTH_AFTER", "LENGTH_BEFORE", "NOBS", "QFLAG", "RMSE"],
+        identifier=identifier,
+        parent_identifier=parent_identifier,
+        color_table=os.path.join(dir_in, "cgl_colorTable_FCOVER.txt"),
+        destination_xml=destination_xml,
+        clip_func=clip_all_vars_netcdf4,
+        thumbnail_func=thumbnail_view,
+        xml_modifier=main_modify_XML,
+        xml_modifier_args=[params_dict, xml_file_path],
+    )
 
 # Keep the original main block for command-line execution compatibility, but call the new function.
 if __name__ == "__main__":
