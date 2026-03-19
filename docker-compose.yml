@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  clms-clipper:
+    build: .
+    container_name: clms-clipper
+    volumes:
+      # Map host directories to container paths
+      - /home/eouser/clms/config:/home/eouser/clms/config
+      - /home/eouser/clms/logs:/home/eouser/clms/logs
+      - /home/eouser/clms/outputs:/home/eouser/clms/outputs
+      - /eodata:/eodata:ro  # Read-only mount for input data
+    environment:
+      - PYTHONPATH=/home/eouser/clms/CLMS_clip_disseminate
+    # For cron, you can run the container with cron enabled
+    # command: cron -f
+    # But for manual runs, use the default CMD
+    stdin_open: true
+    tty: true

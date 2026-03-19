@@ -41,10 +41,20 @@ CURRENT_LOG_FILE = None
 # --- HELPER FUNCTIONS ---
 
 def set_log_file(region_name):
-    """Sets the log file path based on the region and returns the path."""
+    """Sets the log file path, ensures the directory exists, and returns the path."""
     global CURRENT_LOG_FILE
+    
+    # 1. Create the directory if it doesn't exist yet
+    if not os.path.exists(LOG_BASE_DIR):
+        os.makedirs(LOG_BASE_DIR)
+        
+    # 2. Generate the timestamped filename
     log_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    CURRENT_LOG_FILE = os.path.join(LOG_BASE_DIR, f"ftp_upload_{region_name}_{log_timestamp}.log")
+    file_name = f"ftp_upload_{region_name}_{log_timestamp}.log"
+    
+    # 3. Join them into a full path
+    CURRENT_LOG_FILE = os.path.join(LOG_BASE_DIR, file_name)
+    
     return CURRENT_LOG_FILE
 
 

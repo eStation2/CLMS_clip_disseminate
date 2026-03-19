@@ -21,14 +21,19 @@ LOG_FILE = "/home/eouser/clms/logs/clipper_automation.log" # Common log file
 # LOG_FILE = "/data/clipper_automation.log" # Common log file
 # --- Logging Setup ---
 def setup_logging():
-    """Configures the logging system to output to a file and the console."""
+    """Configures the logging system, creating the log directory/file if needed."""
+    
+    # 1. Ensure the directory exists to avoid FileNotFoundError
+    log_dir = os.path.dirname(LOG_FILE)
+    if log_dir and not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
     logging.basicConfig(
-        level=logging.DEBUG, # Set base level to INFO
+        level=logging.DEBUG,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            # Handler to write logs to a common file
-            logging.FileHandler(LOG_FILE),
-            # Handler to output logs to the console
+            # 'delay=True' prevents creating an empty file until the first log message
+            logging.FileHandler(LOG_FILE, mode='a', encoding='utf-8', delay=False),
             logging.StreamHandler()
         ]
     )

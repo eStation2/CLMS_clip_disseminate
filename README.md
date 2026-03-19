@@ -144,4 +144,43 @@ See the individual product READMEs (e.g., `NDVI/README.md`) for more examples an
 
 ---
 
+## 🐳 Docker Deployment
+
+Instead of running on the host machine, you can deploy the CLMS clipping system in a Docker container.
+
+### Prerequisites
+- Docker and Docker Compose installed on the host.
+- Ensure the host directories exist: `/home/eouser/clms/config`, `/home/eouser/clms/logs`, `/home/eouser/clms/outputs`, `/eodata/CLMS`.
+
+### Build and Run
+1. **Build the image:**
+   ```bash
+   docker-compose build
+   ```
+
+2. **Run the container (manual execution):**
+   ```bash
+   docker-compose run --rm clms-clipper
+   ```
+   This runs the automation script once and exits.
+
+3. **For cron-like scheduling inside the container:**
+   - Modify the `docker-compose.yml` to use `command: cron -f`.
+   - Copy your crontab into the container (e.g., via a custom entrypoint script).
+   - Run: `docker-compose up -d`
+
+### Volume Mappings
+- **Config:** `/home/eouser/clms/config` (host) → `/home/eouser/clms/config` (container)
+- **Logs:** `/home/eouser/clms/logs` (host) → `/home/eouser/clms/logs` (container)
+- **Outputs:** `/home/eouser/clms/outputs` (host) → `/home/eouser/clms/outputs` (container)
+- **Input Data:** `/eodata/CLMS` (host, read-only) → `/eodata/CLMS` (container)
+
+### Notes
+- The container runs as user `eouser` to match the host setup.
+- For production, consider using a proper container orchestration tool like Kubernetes for scheduling.
+- Ensure the host's `/eodata/CLMS` is accessible and has the correct permissions.
+
+---
+
+
 

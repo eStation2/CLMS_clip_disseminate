@@ -1,0 +1,13 @@
+[project]
+name = "climatestation"
+version = "1.0"
+description = ""
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.8.4,<3.9",
+    "netcdf4>=1.7.2",
+    "numpy>=1.26.4,<2.0",
+    "pillow",
+    "pyproj",
+    "xarray>=2025.4.0",
+]
