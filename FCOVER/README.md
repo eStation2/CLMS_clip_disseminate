@@ -40,8 +40,10 @@ Each script exposes a function that returns the generated output ZIP, which allo
 
 ## Notes
 
-- Output files are written by default to:
-  - `/home/eouser/clms/outputs/afr/`
-  - `/home/eouser/clms/outputs/sam/`
+- Output files are written **by default** to the paths shown in the function
+  signatures above (`dir_out=...`). These are **examples** — the orchestrator
+  (`automation_script.py`) overrides them via the `CLMS_OUTPUT_AFR_DIR` /
+  `CLMS_OUTPUT_SOAM_DIR` settings in `.env`. See the root `README.md` and
+  `docs/DEPLOYMENT.md`.
 
 - The scripts share common clipping/packaging utilities from `clms_clipper_common.py`.

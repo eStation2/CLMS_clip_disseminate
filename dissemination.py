@@ -5,30 +5,53 @@ import datetime
 import glob
 from io import BytesIO, StringIO
 
+# Load variables from a local .env file if present (optional; see .env.template).
+# Falls back to the process environment and the production defaults below when
+# python-dotenv is not installed or no .env exists.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+except ImportError:
+    pass
+
 # --- GLOBAL CONFIGURATION (unchanging settings) ---
-FTP_SERVER = "ofids.eumetsat.int"
-LOG_BASE_DIR = "/home/eouser/clms/logs"
-CONFIG_BASE_DIR = "/home/eouser/clms/config"
-PROCESSED_OUTPUT_LIST = "/home/eouser/clms/config/processed_output_files.txt"
-LOCAL_IP = '46.60.20.214'
-PORT_RANGE_START = 50000
-PORT_RANGE_END = 50100
+# All values are read from the environment (see .env / .env.template), falling
+# back to the original production CDSE defaults when unset.
+CLMS_HOME = os.environ.get("CLMS_HOME", "/home/eouser/clms")
+
+FTP_SERVER = os.environ.get("CLMS_FTP_SERVER", "ofids.eumetsat.int")
+LOG_BASE_DIR = os.environ.get("CLMS_LOG_DIR", os.path.join(CLMS_HOME, "logs"))
+CONFIG_BASE_DIR = os.environ.get("CLMS_CONFIG_DIR", os.path.join(CLMS_HOME, "config"))
+PROCESSED_OUTPUT_LIST = os.environ.get(
+    "CLMS_PROCESSED_OUTPUT_FILE", os.path.join(CONFIG_BASE_DIR, "processed_output_files.txt")
+)
+LOCAL_IP = os.environ.get("CLMS_FTP_LOCAL_IP", "46.60.20.214")
+PORT_RANGE_START = int(os.environ.get("CLMS_FTP_PORT_RANGE_START", "50000"))
+PORT_RANGE_END = int(os.environ.get("CLMS_FTP_PORT_RANGE_END", "50100"))
+
+# Per-ROI output directories (shared with the clipping step via the same vars).
+OUTPUT_AFR_DIR = os.environ.get("CLMS_OUTPUT_AFR_DIR", os.path.join(CLMS_HOME, "outputs", "afr"))
+OUTPUT_SOAM_DIR = os.environ.get("CLMS_OUTPUT_SOAM_DIR", os.path.join(CLMS_HOME, "outputs", "sam"))
 # --------------------------------------------------
 
 # --- REGIONAL PROFILES ---
+# Credentials (user_pwd) and remote dirs come from the environment so they are
+# not hardcoded in the (duplicated) dissemination scripts. netrc_file is kept
+# as-is since the current upload uses USERPWD, not NETRC_FILE.
 REGIONS = {
     "AFR": {
-        "remote_dir": "/out/groups/vito-open-afr-test",
-        "local_dir": "/home/eouser/clms/outputs/afr",
-        "netrc_file": "/home/eouser/clms/config/vgt4afr.netrc",
-        "user_pwd": "user:pwd",
+        "remote_dir": os.environ.get("CLMS_AFR_REMOTE_DIR", "/out/groups/vito-open-afr-test"),
+        "local_dir": OUTPUT_AFR_DIR,
+        "netrc_file": os.path.join(CONFIG_BASE_DIR, "vgt4afr.netrc"),
+        "user_pwd": os.environ.get("CLMS_AFR_USER_PWD", "user:pwd"),
         "list_file_suffix": "afr"
     },
     "SOAM": {
-        "remote_dir": "/out/groups/vito-open-sam-test",  # Example SOAM remote dir
-        "local_dir": "/home/eouser/clms/outputs/sam",  # Example SOAM local dir
-        "netrc_file": "/home/eouser/clms/config/devcocast.netrc",  # Example SOAM netrc file
-        "user_pwd": "user:pwd",
+        "remote_dir": os.environ.get("CLMS_SOAM_REMOTE_DIR", "/out/groups/vito-open-sam-test"),
+        "local_dir": OUTPUT_SOAM_DIR,
+        "netrc_file": os.path.join(CONFIG_BASE_DIR, "devcocast.netrc"),
+        "user_pwd": os.environ.get("CLMS_SOAM_USER_PWD", "user:pwd"),
         "list_file_suffix": "soam"
     }
 }

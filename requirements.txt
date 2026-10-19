@@ -1,0 +1,18 @@
+# Python dependencies for CLMS clipping & dissemination.
+#
+# NOTE on GDAL: the GDAL Python binding MUST match the system libgdal version.
+# Do NOT pin a fixed GDAL version here. Install it separately with:
+#
+#     pip install "GDAL==$(gdal-config --version)"
+#
+# (see README / setup instructions). The system library is installed via apt:
+#     sudo apt-get install gdal-bin libgdal-dev
+#
+# The remaining packages are safe to pin.
+
+numpy>=1.26,<2.0
+netCDF4>=1.6,<2.0
+lxml>=5.0
+python-dateutil>=2.8
+pycurl>=7.45
+python-dotenv>=1.0

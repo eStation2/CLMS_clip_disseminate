@@ -2,6 +2,17 @@ import subprocess
 import datetime
 import os
 import logging
+
+# Load variables from a local .env file if present. This is optional: if
+# python-dotenv is not installed, or no .env exists, the script falls back to
+# the process environment and the hardcoded production defaults below.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+except ImportError:
+    pass
+
 from DMP.clip_clms_DMP_AFRI_V2 import run_dmp_afri_clipping
 from DMP.clip_clms_DMP_SOAM_V2 import run_dmp_soam_clipping
 from NDVI.clip_clms_NDVI_AFRI_V3 import run_ndvi_afri_clipping
@@ -14,11 +25,40 @@ from LAI.clip_clms_LAI_AFRI_V2 import run_lai_afri_clipping
 from LAI.clip_clms_LAI_SOAM_V2 import run_lai_soam_clipping
 
 # --- Configuration ---
-PROCESSED_LIST_FILE = "/home/eouser/clms/config/processed_input_files.txt"
-PROCESSED_OUTPUT_LIST = "/home/eouser/clms/config/processed_output_files.txt"
-LOG_FILE = "/home/eouser/clms/logs/clipper_automation.log" # Common log file
-# PROCESSED_LIST_FILE = "/data/processed_input_files.txt"
-# LOG_FILE = "/data/clipper_automation.log" # Common log file
+# All runtime paths are read from the environment (see .env / .env.template),
+# falling back to the original production CDSE defaults when unset, so
+# bare-metal behaviour is unchanged if no .env is provided.
+CLMS_HOME = os.environ.get("CLMS_HOME", "/home/eouser/clms")
+CONFIG_DIR = os.environ.get("CLMS_CONFIG_DIR", os.path.join(CLMS_HOME, "config"))
+LOG_DIR = os.environ.get("CLMS_LOG_DIR", os.path.join(CLMS_HOME, "logs"))
+
+PROCESSED_LIST_FILE = os.environ.get(
+    "CLMS_PROCESSED_INPUT_FILE", os.path.join(CONFIG_DIR, "processed_input_files.txt")
+)
+PROCESSED_OUTPUT_LIST = os.environ.get(
+    "CLMS_PROCESSED_OUTPUT_FILE", os.path.join(CONFIG_DIR, "processed_output_files.txt")
+)
+LOG_FILE = os.environ.get(
+    "CLMS_LOG_FILE", os.path.join(LOG_DIR, "clipper_automation.log")
+)  # Common log file
+
+# Per-ROI output directories, passed explicitly to the clipper functions.
+OUTPUT_AFR_DIR = os.environ.get("CLMS_OUTPUT_AFR_DIR", os.path.join(CLMS_HOME, "outputs", "afr"))
+OUTPUT_SOAM_DIR = os.environ.get("CLMS_OUTPUT_SOAM_DIR", os.path.join(CLMS_HOME, "outputs", "sam"))
+
+# Root of the CDSE EODATA archive (mount point in Docker).
+EODATA_ROOT = os.environ.get("EODATA_ROOT", "/eodata")
+
+# Map each ROI to its output directory. clip_and_package appends a trailing
+# separator internally, so a plain directory path is fine here.
+OUTPUT_DIRS_BY_ROI = {
+    "AFRI": OUTPUT_AFR_DIR,
+    "SOAM": OUTPUT_SOAM_DIR,
+}
+
+# Ensure the config and log directories exist before logging/tracking starts.
+os.makedirs(CONFIG_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
 # --- Logging Setup ---
 def setup_logging():
     """Configures the logging system to output to a file and the console."""
@@ -116,11 +156,11 @@ def run_clipper_process(product_var, target_date, filename_base, base_dir_key, r
 
     # 1. Base directory map and lookup
     base_dirs = {
-        "NDVI": "/eodata/CLMS/bio-geophysical/vegetation_indices/ndvi_global_300m_10daily_v3",
-        "DMP": "/eodata/CLMS/bio-geophysical/dry-gross_dry_matter_productivity/dmp_global_300m_10daily_v2",
-        "FAPAR": "/eodata/CLMS/bio-geophysical/vegetation_properties/fapar_global_300m_10daily_v2",
-        "FCOVER": "/eodata/CLMS/bio-geophysical/vegetation_properties/fcover_global_300m_10daily_v2",
-        "LAI": "/eodata/CLMS/bio-geophysical/vegetation_properties/lai_global_300m_10daily_v2",
+        "NDVI": os.path.join(EODATA_ROOT, "CLMS/bio-geophysical/vegetation_indices/ndvi_global_300m_10daily_v3"),
+        "DMP": os.path.join(EODATA_ROOT, "CLMS/bio-geophysical/dry-gross_dry_matter_productivity/dmp_global_300m_10daily_v2"),
+        "FAPAR": os.path.join(EODATA_ROOT, "CLMS/bio-geophysical/vegetation_properties/fapar_global_300m_10daily_v2"),
+        "FCOVER": os.path.join(EODATA_ROOT, "CLMS/bio-geophysical/vegetation_properties/fcover_global_300m_10daily_v2"),
+        "LAI": os.path.join(EODATA_ROOT, "CLMS/bio-geophysical/vegetation_properties/lai_global_300m_10daily_v2"),
     }
 
     base_dir = base_dirs.get(base_dir_key)
@@ -186,7 +226,14 @@ def run_clipper_process(product_var, target_date, filename_base, base_dir_key, r
     try:
         # 1. Execute the function
         # The function must be modified to return the zip file path (as in Step 1)
-        zip_file_location = clipper_function(full_argument)
+        # Pass the ROI-specific output directory from the environment so output
+        # location is configurable (see .env). Falls back to the clipper's own
+        # default if the ROI is somehow unknown.
+        output_dir = OUTPUT_DIRS_BY_ROI.get(roi)
+        if output_dir:
+            zip_file_location = clipper_function(full_argument, dir_out=output_dir)
+        else:
+            zip_file_location = clipper_function(full_argument)
 
         # Check 1: Success based on function call completing without exception
         logging.info(f"{log_prefix} Script function executed successfully. Expected output: {zip_file_location}.")

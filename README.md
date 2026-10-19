@@ -4,6 +4,10 @@ This repository contains the CLMS clipping automation and dissemination scripts 
 
 > 💡 **Note:** This README is written for usage on the CDSE machine (accessed via `ssh` from `s262p`).
 
+> 📘 **Deploying on a fresh VM?** See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
+> for the full step-by-step runbook (system GDAL, venv, `.env`, swap, run,
+> cron, and troubleshooting).
+
 ---
 
 ## 🔌 Environment & Directory Layout
@@ -14,21 +18,95 @@ ssh cdse
 ```
 
 ### Key workspace location
-All the configuration, logs, scripts, and output data live under:
+
+All configuration, logs, and output data live under a single **base directory**,
+referred to below as `$CLMS_HOME`. For example, on one CDSE VM this was:
 ```
 /home/eouser/clms
 ```
 
+> ⚙️ **These paths are configurable and the values shown are only examples.**
+> `$CLMS_HOME` and every sub-path are read from environment variables (see
+> `.env` / `.env.template` and [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)). Set
+> `CLMS_HOME` (and the related `CLMS_*` variables) to a writable location
+> appropriate for your machine and user account.
+
 The CLMS clipping repository is cloned into:
 ```
-/home/eouser/clms/CLMS_clip_disseminate
+$CLMS_HOME/CLMS_clip_disseminate
 ```
 
-### Important directories
-- **Configuration:** `/home/eouser/clms/config/`
-- **Logs:** `/home/eouser/clms/logs/`
-- **Output:** `/home/eouser/clms/outputs/`
-- **Scripts:** `/home/eouser/clms/CLMS_clip_disseminate/`
+### Important directories (relative to `$CLMS_HOME`)
+| Purpose | Example path | Env variable |
+|---|---|---|
+| Configuration | `$CLMS_HOME/config/` | `CLMS_CONFIG_DIR` |
+| Logs | `$CLMS_HOME/logs/` | `CLMS_LOG_DIR` |
+| Output (AFRI) | `$CLMS_HOME/outputs/afr/` | `CLMS_OUTPUT_AFR_DIR` |
+| Output (SOAM) | `$CLMS_HOME/outputs/sam/` | `CLMS_OUTPUT_SOAM_DIR` |
+| Scripts | `$CLMS_HOME/CLMS_clip_disseminate/` | — |
+| Input archive | `/eodata` (read-only mount) | `EODATA_ROOT` |
+
+---
+
+## ⚙️ Configuration (`.env`)
+
+Runtime paths are read from a `.env` file in the repository root (loaded via
+`python-dotenv`). A committed `.env.template` documents every variable; copy it
+and edit for your machine:
+
+```bash
+cp .env.template .env
+# then edit .env
+```
+
+| Variable | Purpose | Example value |
+|---|---|---|
+| `CLMS_HOME` | Base directory for all runtime data | `/home/eouser/clms` |
+| `CLMS_CONFIG_DIR` | Tracking lists (+ netrc files) | `$CLMS_HOME/config` |
+| `CLMS_LOG_DIR` | Log directory | `$CLMS_HOME/logs` |
+| `CLMS_PROCESSED_INPUT_FILE` | Processed-input tracking list | `$CLMS_CONFIG_DIR/processed_input_files.txt` |
+| `CLMS_PROCESSED_OUTPUT_FILE` | Processed-output tracking list | `$CLMS_CONFIG_DIR/processed_output_files.txt` |
+| `CLMS_LOG_FILE` | Main clipper log file | `$CLMS_LOG_DIR/clipper_automation.log` |
+| `CLMS_OUTPUT_AFR_DIR` | AFRI output directory | `$CLMS_HOME/outputs/afr` |
+| `CLMS_OUTPUT_SOAM_DIR` | SOAM output directory | `$CLMS_HOME/outputs/sam` |
+| `EODATA_ROOT` | Root of the CDSE EODATA archive (input) | `/eodata` |
+
+Notes:
+- `.env` is **gitignored**; only `.env.template` is committed. The example values
+  above are **not** production values — set them for your own machine.
+- If `.env` is absent, the scripts fall back to these same example defaults, so
+  bare-metal behaviour is unchanged.
+- The config and log directories are **auto-created** at startup. If they point
+  somewhere not writable by the current user, you'll get a `PermissionError` —
+  adjust the paths in `.env`.
+- Currently `automation_script.py` and `dissemination.py` (and its per-region
+  duplicates `dissemination_afr.py` / `dissemination_soam.py`) read `.env`.
+  `clms_clipper_unified.py` still uses hardcoded paths.
+
+### Dissemination (FTP) variables
+
+The dissemination scripts read their FTP endpoint and credentials from `.env`
+too. The log/config/output directories are reused from the variables above.
+
+| Variable | Purpose | Example value |
+|---|---|---|
+| `CLMS_FTP_SERVER` | EUMETCAST FTP host | `ofids.eumetsat.int` |
+| `CLMS_FTP_LOCAL_IP` | This machine's reachable IP (FTP active mode) | `46.60.20.214` |
+| `CLMS_FTP_PORT_RANGE_START` | Active-mode port range start | `50000` |
+| `CLMS_FTP_PORT_RANGE_END` | Active-mode port range end | `50100` |
+| `CLMS_AFR_REMOTE_DIR` | AFR remote upload directory | `/out/groups/vito-open-afr-test` |
+| `CLMS_AFR_USER_PWD` | AFR credentials, `user:password` (**secret**) | `user:pwd` |
+| `CLMS_SOAM_REMOTE_DIR` | SOAM remote upload directory | `/out/groups/vito-open-sam-test` |
+| `CLMS_SOAM_USER_PWD` | SOAM credentials, `user:password` (**secret**) | `user:pwd` |
+
+> ⚠️ **FTP active mode:** `CLMS_FTP_LOCAL_IP` must be this machine's own
+> externally reachable IP, and the port range (`50000–50100`) must be open in
+> the firewall, or uploads will hang/fail.
+>
+> 🔐 **Credentials** (`CLMS_*_USER_PWD`) are secrets — set real values only in
+> `.env` (gitignored), never in `.env.template` or committed code.
+
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full setup runbook.
 
 ---
 
@@ -37,6 +115,12 @@ The CLMS clipping repository is cloned into:
 The system is driven by cron jobs that run the main automation script on a schedule designed around “dekads” (10-day periods).
 
 ### Cron schedule (as seen in `crontab -l`)
+
+> The absolute paths below are an **example** from one deployment. Adjust them to
+> your `$CLMS_HOME` and use the venv interpreter
+> (`$CLMS_HOME/CLMS_clip_disseminate/.venv/bin/python3`) rather than
+> `/usr/bin/python3`, so the GDAL/netCDF dependencies are available.
+
 ```cron
 # m h  dom mon dow   command
 # Run once in the evening (7 PM) on the 1st, 11th and 21st
@@ -77,9 +161,11 @@ The process is managed via two main tracking files located in `config/`:
 
 ## 🗂️ Output Folder Layout
 
-All outputs are written under:
+All outputs are written under the configured output directories (example paths —
+set via `CLMS_OUTPUT_AFR_DIR` / `CLMS_OUTPUT_SOAM_DIR`, defaulting under
+`$CLMS_HOME/outputs/`):
 ```
-/home/eouser/clms/outputs/
+$CLMS_HOME/outputs/
 ```
 
 ### Africa (AFR)
@@ -94,12 +180,13 @@ All outputs are written under:
 
 ## 📄 Logging
 
-All clipping logs are written to:
-- `/home/eouser/clms/logs/clipper_automation.log`
+All clipping logs are written to the configured log directory (`CLMS_LOG_DIR`;
+`CLMS_LOG_FILE` for the main log). Example:
+- `$CLMS_HOME/logs/clipper_automation.log`
 
-Upload logs are produced for each run and include a timestamp:
-- `/home/eouser/clms/logs/ftp_upload_AFR_<TIMESTAMP>.log`
-- `/home/eouser/clms/logs/ftp_upload_SOAM_<TIMESTAMP>.log`
+Upload logs are produced for each run and include a timestamp, e.g.:
+- `$CLMS_HOME/logs/ftp_upload_AFR_<TIMESTAMP>.log`
+- `$CLMS_HOME/logs/ftp_upload_SOAM_<TIMESTAMP>.log`
 
 ---
 
@@ -124,11 +211,16 @@ python compareProduct.py -t /tmp -r reference/c_gls_FAPAR300-RT0_202505100000_AF
 
 ## 🚀 Quick Start (Manual Run)
 
-From the CDSE machine:
+From the machine where the repo is deployed (replace `$CLMS_HOME` with your
+actual base directory):
 ```bash
-cd /home/eouser/clms/CLMS_clip_disseminate
+cd $CLMS_HOME/CLMS_clip_disseminate
+source .venv/bin/activate        # activate the virtual environment first
 python3 automation_script.py
 ```
+
+> See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for first-time setup (system
+> GDAL, venv, `.env`, swap) before running.
 
 ### Running a specific clipper script directly
 

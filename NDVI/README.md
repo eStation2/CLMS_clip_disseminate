@@ -42,8 +42,10 @@ The top-level automation script (`automation_script.py`) calls these functions t
 
 ## Logs / Outputs
 
-Output files are written into the global output directory (by default):
-- `/home/eouser/clms/outputs/afr/` (AFRI)
-- `/home/eouser/clms/outputs/sam/` (SOAM)
+Output files are written **by default** to the paths shown in the function
+signatures above (`dir_out=...`). These are **examples** — the orchestrator
+(`automation_script.py`) overrides them via the `CLMS_OUTPUT_AFR_DIR` /
+`CLMS_OUTPUT_SOAM_DIR` settings in `.env`. See the root `README.md` and
+`docs/DEPLOYMENT.md`.
 
 The clipping script itself will print diagnostic messages to STDOUT and will also return a non-zero exit code on failure.
