@@ -18,13 +18,18 @@ on Ubuntu 24.04 and captures the decisions, commands, and pitfalls encountered.
 |---|---|
 | OS | Ubuntu 24.04 LTS (KVM VM) |
 | CPU / RAM | 2 vCPU / ~1.9 GB |
-| Disk | ~15 GB (≈12 GB free) |
+| Root disk | ~15 GB (small — not for outputs) |
+| Data volume | separate ~100 GB disk (`/dev/sdb1`, label `localdata`) mounted at `/localdata` for outputs — see section 4b |
 | Input archive | `/eodata` mounted **read-only** (CDSE EODATA) |
 | GDAL | installed via apt → 3.8.4 |
 
 > ⚠️ **1.9 GB RAM is below what a single clip needs at peak (~1.2 GB) plus OS
 > overhead when the input is ~2.84 GB.** Swap is mandatory on this size VM — see
 > step 4. For regular production use, prefer an 8 GB+ VM.
+>
+> ⚠️ **The ~15 GB root disk cannot hold outputs.** The large data volume must be
+> mounted at `/localdata` (section 4b) and the `.env` output paths pointed at it,
+> or clips fail with `NetCDF: HDF error` when the disk fills.
 
 ---
 
@@ -112,6 +117,92 @@ Confirm:
 ```bash
 swapon --show   # should list /swapfile  6G
 free -h         # Swap row shows 6.0Gi
+```
+
+---
+
+## 4b. Data volume — mount the large disk for outputs (requires sudo)
+
+The root disk is small (~15 GB) and cannot hold a full dekad of outputs
+(each product zip is ~300–500 MB, plus an equally large intermediate NetCDF that
+exists on disk *before* it is zipped). On a full root disk the clip fails with a
+misleading **`NetCDF: HDF error`** on write (HDF5 cannot flush to disk), followed
+by a downstream `ERROR 4: ... No such file or directory` when the quicklook step
+reopens the file that was never written.
+
+The VM is provisioned with a separate large volume for this purpose — **it must
+be mounted**, otherwise writes silently land on the full root disk.
+
+### Identify the volume
+```bash
+lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINT
+```
+Look for a large disk/partition with **no mountpoint**. On this VM it is:
+```
+sdb      100G disk
+└─sdb1   100G part ext4  localdata        (no mountpoint → not mounted)
+```
+It is pre-formatted ext4 and **labeled `localdata`**:
+```bash
+sudo blkid /dev/sdb1
+# /dev/sdb1: LABEL="localdata" UUID="5e02eeb0-072f-477c-b1f9-7ad8d5f284f3" TYPE="ext4"
+```
+
+### Preserve any existing data first
+If `/localdata` already exists as a plain folder on the root disk and contains
+data, mounting over it would *hide* that data. Copy it onto the volume first:
+```bash
+sudo mount /dev/sdb1 /mnt
+sudo cp -a /localdata/. /mnt/        # only if /localdata has pre-existing files
+sudo umount /mnt
+```
+
+### Mount it
+```bash
+sudo mount /dev/sdb1 /localdata
+df -h /localdata        # should show ~98G, mostly free
+findmnt /localdata      # confirms source=/dev/sdb1
+```
+
+### Persist across reboots (critical)
+A manual `mount` lasts only until reboot. Add an `/etc/fstab` entry so it
+auto-mounts; otherwise after a reboot `/localdata` silently reverts to the small
+root disk and clipping fails again.
+
+```bash
+sudo cp /etc/fstab /etc/fstab.bak        # back up first
+```
+Add this line (use the volume's own UUID or LABEL):
+```
+UUID=5e02eeb0-072f-477c-b1f9-7ad8d5f284f3  /localdata  ext4  defaults,nofail  0  2
+# or: LABEL=localdata  /localdata  ext4  defaults,nofail  0  2
+```
+- `nofail` lets the system boot even if the volume is temporarily missing
+  (prevents a bad mount from blocking boot).
+- **No spaces inside the options field.** `defaults, nofail` (with a space) is a
+  common mistake — `mount` reports `parse error at line N -- ignored` and the
+  entry is skipped, so the mount silently does NOT persist. It must be
+  `defaults,nofail`.
+
+### Validate the fstab entry WITHOUT rebooting
+```bash
+sudo mount -a
+```
+- **No output = success** (the line parses and mounts cleanly).
+- If you see `parse error at line N -- ignored`, fix the line (usually the space
+  above) and re-run until it is silent.
+
+Confirm the final state:
+```bash
+df -h /localdata        # /dev/sdb1, ~98G
+```
+
+### Point outputs at the volume
+Set the output directories in `.env` (see section 5) to live under `/localdata`,
+e.g. `CLMS_OUTPUT_AFR_DIR=/localdata/afr`, `CLMS_OUTPUT_SOAM_DIR=/localdata/sam`.
+Optionally move older outputs off the root disk to reclaim space:
+```bash
+mv /home/<user>/clms/outputs/* /localdata/
 ```
 
 ---
@@ -283,20 +374,41 @@ python3 dissemination_afr.py      # or dissemination_soam.py
 
 ## 8. Scheduling (cron)
 
-The production schedule runs on dekad boundaries. See the root `README.md` for
-the exact crontab. Use the venv interpreter directly in cron entries:
+The schedule runs on dekad boundaries. Each entry must **`cd` into the repo root
+first** (so the `DMP`/`NDVI`/… package imports resolve) and use the **venv
+interpreter** (so GDAL/netCDF are available). Logging is handled internally by
+the scripts (`CLMS_LOG_DIR`), so no stdout redirect is needed.
+
+A ready-to-install example lives outside the repo at `~/clms_crontab.txt`.
+Install with `crontab ~/clms_crontab.txt`, verify with `crontab -l`.
 
 ```cron
-# Clipper — 1st/11th/21st at 19:00
-0 19 1,11,21 * * /path/to/CLMS_clip_disseminate/.venv/bin/python3 \
-  /path/to/CLMS_clip_disseminate/automation_script.py
+REPO=/path/to/CLMS_clip_disseminate
+PY=/path/to/CLMS_clip_disseminate/.venv/bin/python3
 
-# Dissemination — AFR and SOAM on separate days/times (duplicated scripts)
-0 2,4 2,3,12,13,22,23 * * /path/to/CLMS_clip_disseminate/.venv/bin/python3 \
-  /path/to/CLMS_clip_disseminate/dissemination_afr.py
-0 2,5 4,14,24 * * /path/to/CLMS_clip_disseminate/.venv/bin/python3 \
-  /path/to/CLMS_clip_disseminate/dissemination_soam.py
+# --- Clipping ---
+0 19 1,11,21 * *          cd $REPO && $PY automation_script.py
+0 */6 2,12,22 * *         cd $REPO && $PY automation_script.py
+0 1,3 3,13,23 * *         cd $REPO && $PY automation_script.py
+
+# --- Dissemination (duplicated per-region scripts, separate days/times) ---
+0 2,4 2,3,12,13,22,23 * * cd $REPO && $PY dissemination_afr.py
+0 2,5 4,14,24 * *         cd $REPO && $PY dissemination_soam.py
+
+# --- Cleanup: delete uploaded files older than 30 days ---
+30 2 1 * * find /localdata/outputs/afr/uploaded/ -type f -mtime +30 -delete
+30 2 1 * * find /localdata/outputs/sam/uploaded/ -type f -mtime +30 -delete
 ```
+
+> ⚠️ **`cd $REPO &&` is required** — without it, cron runs from `$HOME` and the
+> clipper fails with `ModuleNotFoundError: No module named 'DMP'`.
+>
+> ⚠️ **Use the venv `$PY`, not `/usr/bin/python3`** — the system Python has no
+> GDAL/netCDF4.
+>
+> The cleanup paths must match the configured output dirs
+> (`CLMS_OUTPUT_AFR_DIR` / `CLMS_OUTPUT_SOAM_DIR`), i.e. the `uploaded/`
+> subfolders under them.
 
 ---
 
@@ -306,6 +418,7 @@ the exact crontab. Use the venv interpreter directly in cron entries:
 |---|---|---|
 | `ModuleNotFoundError: No module named 'osgeo'` | venv not active | `source .venv/bin/activate` or use `.venv/bin/python3` |
 | Process "Killed", exit code **137** | OOM killer (RAM exhausted) | add swap (step 4); longer term resize VM |
+| `NetCDF: HDF error` on write, then `ERROR 4: ... No such file or directory` | **disk full** — output/intermediate NetCDF cannot be written (often because `/localdata` volume is not mounted, so writes hit the small root disk) | mount the data volume (section 4b); free root-disk space; `df -h /localdata` |
 | `PermissionError` at `os.makedirs` on startup | `.env` paths not writable by current user | point `CLMS_*` at a writable dir |
 | `ModuleNotFoundError: No module named 'DMP'` (or NDVI, …) | not run from repo root | `cd` to the repository root first |
 | `SKIP: Target Input File does NOT exist` | input not yet published for this dekad | expected; re-run later (cron retries) |

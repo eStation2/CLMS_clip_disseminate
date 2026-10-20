@@ -42,6 +42,20 @@ Docker would hit the **same OOM** (constraint is RAM, not packaging) plus add
 daemon overhead; its image is ~2 GB. Conda bundles duplicate C libs (~2-3 GB).
 The pip venv + system GDAL footprint is ~178 MB. For this VM, venv wins.
 
+## Disk: outputs must go on the mounted data volume
+The root disk is small (~15 GB) and cannot hold a dekad of outputs (zips
+~300–500 MB each + an equally large intermediate NetCDF before zipping). A
+**separate ~100 GB volume** (`/dev/sdb1`, label `localdata`, UUID
+`5e02eeb0-072f-477c-b1f9-7ad8d5f284f3`) is mounted at `/localdata`; `.env`
+output paths point there (`/localdata/afr`, `/localdata/sam`).
+
+Symptom when the volume is NOT mounted (writes hit the full root disk):
+`NetCDF: HDF error` on write, then `ERROR 4: ... No such file or directory` in
+the quicklook step. Fix = mount `/localdata` (fstab: `defaults,nofail` — no
+space in options, or the line is silently ignored and the mount won't persist).
+Validate with `sudo mount -a` (silent = OK). Full runbook: `docs/DEPLOYMENT.md`
+section 4b.
+
 ## Production recommendation
 Swap is a safety net but swap-thrashing a 2.84 GB read is slow and hard on disk.
 For regular dekadal runs, **resize the VM to 8 GB+ RAM** so clips run in-memory

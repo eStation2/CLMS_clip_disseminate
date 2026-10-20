@@ -116,10 +116,12 @@ The system is driven by cron jobs that run the main automation script on a sched
 
 ### Cron schedule (as seen in `crontab -l`)
 
-> The absolute paths below are an **example** from one deployment. Adjust them to
-> your `$CLMS_HOME` and use the venv interpreter
-> (`$CLMS_HOME/CLMS_clip_disseminate/.venv/bin/python3`) rather than
-> `/usr/bin/python3`, so the GDAL/netCDF dependencies are available.
+> The absolute paths below are an **example** from one deployment. Adapt them to
+> your repo location. Two requirements for cron: (1) **`cd` into the repo root**
+> before running (so `DMP`/`NDVI`/… package imports resolve), and (2) use the
+> **venv interpreter** (`.venv/bin/python3`), not `/usr/bin/python3`, so the
+> GDAL/netCDF dependencies are available. See `docs/DEPLOYMENT.md` §8 for a
+> ready-to-install crontab (with `cd $REPO && $PY ...`) and the cleanup jobs.
 
 ```cron
 # m h  dom mon dow   command
